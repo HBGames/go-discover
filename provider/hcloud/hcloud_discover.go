@@ -20,7 +20,11 @@ func (p *Provider) Help() string {
 	location:       The Hetzner Cloud datacenter location to filter by (eg. "fsn1")
 	label_selector: The label selector to filter by
 	address_type:   "private_v4", "public_v4" or "public_v6", defaults to "private_v4". In the case of private networks, the first one will be used
-	api_token:      The Hetzner Cloud API token to use, can also be provided by environment variable: HCLOUD_TOKEN
+	api_token:      The Hetzner Cloud API token to use
+
+	Variables can also be provided by environment variables:
+	export HCLOUD_LOCATION for location
+	export HCLOUD_TOKEN for api_token
 `
 }
 
@@ -86,6 +90,14 @@ func (p *Provider) Addrs(args map[string]string, l *log.Logger) ([]string, error
 		apiToken = os.Getenv("HCLOUD_TOKEN")
 		if apiToken == "" {
 			return nil, fmt.Errorf("discover-hcloud: no api_token specified")
+		}
+	}
+
+	if location == "" {
+		l.Printf("[INFO] no location specified, checking environment variable HCLOUD_LOCATION")
+		location = os.Getenv("HCLOUD_LOCATION")
+		if location == "" {
+			return nil, fmt.Errorf("discover-hcloud: no location specified")
 		}
 	}
 
