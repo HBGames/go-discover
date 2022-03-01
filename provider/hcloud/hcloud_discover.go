@@ -97,9 +97,6 @@ func (p *Provider) Addrs(args map[string]string, l *log.Logger) ([]string, error
 	if location == "" {
 		l.Printf("[INFO] no location specified, checking environment variable HCLOUD_LOCATION")
 		location = os.Getenv("HCLOUD_LOCATION")
-		if location == "" {
-			return nil, fmt.Errorf("discover-hcloud: no location specified")
-		}
 	}
 
 	if addrType == "" {
