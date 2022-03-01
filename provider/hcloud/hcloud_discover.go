@@ -17,7 +17,8 @@ func (p *Provider) Help() string {
 	return `Hetzner Cloud:
 
 	provider:       "hcloud"
-	location:       The Hetzner Cloud datacenter location to filter by (eg. "fsn1")
+	location:       The Hetzner Cloud datacenter location to filter by (eg. "fsn1"). Optional. If empty, will detact the location of the current server.
+	                If not on an hcloud server, will connect to all servers matching label_selector.
 	label_selector: The label selector to filter by
 	address_type:   "private_v4", "public_v4" or "public_v6", defaults to "private_v4". In the case of private networks, the first one will be used
 	api_token:      The Hetzner Cloud API token to use
@@ -111,9 +112,24 @@ func (p *Provider) Addrs(args map[string]string, l *log.Logger) ([]string, error
 		addrType = "private_v4"
 	}
 
-	l.Printf("[DEBUG] discover-hcloud: using address_type=%s label_selector=%s location=%s", addrType, labelSelector, location)
-
 	client := hcloud.NewClient(hcloud.WithToken(apiToken))
+
+	if location != "" {
+		l.Printf("[INFO] discover-hcloud: filtering by location %s", location)
+		content, err := ioutil.ReadFile("/etc/hostname")
+		if err != nil {
+			return nil, fmt.Errorf("discover-hcloud: %s", err)
+		}
+
+		server, _, err := client.Server.GetByName(context.Background(), string(content))
+		if err != nil {
+			return nil, fmt.Errorf("discover-hcloud: %s", err)
+		}
+
+		location = server.Datacenter.Location.Name
+	}
+
+	l.Printf("[DEBUG] discover-hcloud: using address_type=%s label_selector=%s location=%s", addrType, labelSelector, location)
 
 	options := hcloud.ServerListOpts{
 		ListOpts: hcloud.ListOpts{
