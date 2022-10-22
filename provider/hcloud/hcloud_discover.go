@@ -93,10 +93,28 @@ func (p *Provider) Addrs(args map[string]string, l *log.Logger) ([]string, error
 			return nil, fmt.Errorf("discover-hcloud: no api_token specified")
 		}
 	}
+	
+	client := hcloud.NewClient(hcloud.WithToken(apiToken))
 
 	if location == "" {
 		l.Printf("[INFO] no location specified, checking environment variable HCLOUD_LOCATION")
 		location = os.Getenv("HCLOUD_LOCATION")
+	}
+
+	if location == "" {
+		l.Printf("[INFO] no HCLOUD_LOCATION environment variable specified, checking current location")
+
+		hostname, err := ioutil.ReadFile("/etc/hostname")
+		if err != nil {
+			return nil, fmt.Errorf("discover-hcloud: %s", err)
+		}
+
+		server, _, err := client.Server.GetByName(context.Background(), string(hostname))
+		if err != nil {
+			return nil, fmt.Errorf("discover-hcloud: %s", err)
+		}
+
+		location = server.Datacenter.Location.Name
 	}
 
 	if addrType == "" {
@@ -109,21 +127,8 @@ func (p *Provider) Addrs(args map[string]string, l *log.Logger) ([]string, error
 		addrType = "private_v4"
 	}
 
-	client := hcloud.NewClient(hcloud.WithToken(apiToken))
-
 	if location != "" {
 		l.Printf("[INFO] discover-hcloud: filtering by location %s", location)
-		content, err := ioutil.ReadFile("/etc/hostname")
-		if err != nil {
-			return nil, fmt.Errorf("discover-hcloud: %s", err)
-		}
-
-		server, _, err := client.Server.GetByName(context.Background(), string(content))
-		if err != nil {
-			return nil, fmt.Errorf("discover-hcloud: %s", err)
-		}
-
-		location = server.Datacenter.Location.Name
 	}
 
 	l.Printf("[DEBUG] discover-hcloud: using address_type=%s label_selector=%s location=%s", addrType, labelSelector, location)
