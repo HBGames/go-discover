@@ -113,6 +113,11 @@ func (p *Provider) Addrs(args map[string]string, l *log.Logger) ([]string, error
 		if err != nil {
 			return nil, fmt.Errorf("discover-hcloud: %s", err)
 		}
+		if server == nil {
+			return nil, fmt.Errorf("discover-hcloud: Failed to find server named %s", string(hostname))
+		}
+
+		l.Printf("[INFO] discover-hcloud: Detected current server %s", server.Name)
 
 		location = server.Datacenter.Location.Name
 	}
