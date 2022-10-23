@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/hetznercloud/hcloud-go/hcloud"
 )
@@ -104,17 +105,19 @@ func (p *Provider) Addrs(args map[string]string, l *log.Logger) ([]string, error
 	if location == "" {
 		l.Printf("[INFO] no HCLOUD_LOCATION environment variable specified, checking current location")
 
-		hostname, err := ioutil.ReadFile("/etc/hostname")
+		content, err := ioutil.ReadFile("/etc/hostname")
 		if err != nil {
 			return nil, fmt.Errorf("discover-hcloud: %s", err)
 		}
 
-		server, _, err := client.Server.GetByName(context.Background(), string(hostname))
+		hostname := strings.TrimSpace(string(content))
+
+		server, _, err := client.Server.GetByName(context.Background(), hostname)
 		if err != nil {
 			return nil, fmt.Errorf("discover-hcloud: %s", err)
 		}
 		if server == nil {
-			return nil, fmt.Errorf("discover-hcloud: Failed to find server named %s", string(hostname))
+			return nil, fmt.Errorf("discover-hcloud: Failed to find server named %s. Are you running on a hetzner server?", hostname)
 		}
 
 		l.Printf("[INFO] discover-hcloud: Detected current server %s", server.Name)
