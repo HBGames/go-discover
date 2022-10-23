@@ -16,17 +16,16 @@ type Provider struct{}
 
 func (p *Provider) Help() string {
 	return `Hetzner Cloud:
+		provider:       "hcloud"
+		api_token:      The Hetzner Cloud API token to use
+		location:       The Hetzner Cloud datacenter location to filter by (eg. "fsn1"). Optional. If empty, will detect the location of the current server.
+										If not on an hcloud server, will connect to all servers matching label_selector.
+		label_selector: The label selector to filter by
+		address_type:   "private_v4", "public_v4" or "public_v6". (default: "private_v4") In the case of private networks, the first one will be used.
 
-	provider:       "hcloud"
-	location:       The Hetzner Cloud datacenter location to filter by (eg. "fsn1"). Optional. If empty, will detact the location of the current server.
-	                If not on an hcloud server, will connect to all servers matching label_selector.
-	label_selector: The label selector to filter by
-	address_type:   "private_v4", "public_v4" or "public_v6", defaults to "private_v4". In the case of private networks, the first one will be used
-	api_token:      The Hetzner Cloud API token to use
-
-	Variables can also be provided by environment variables:
-	export HCLOUD_LOCATION for location
-	export HCLOUD_TOKEN for api_token
+		Variables can also be provided by environment variables:
+		export HCLOUD_LOCATION for location
+		export HCLOUD_TOKEN for api_token
 `
 }
 
@@ -82,29 +81,18 @@ func (p *Provider) Addrs(args map[string]string, l *log.Logger) ([]string, error
 		l = log.New(ioutil.Discard, "", 0)
 	}
 
+	addressType := args["address_type"]
+	location := argsOrEnv(args, "location", "HCLOUD_LOCATION")
 	labelSelector := args["label_selector"]
-	addrType := args["address_type"]
-	location := args["location"]
-	apiToken := args["api_token"]
+	apiToken := argsOrEnv(args, "api_token", "HCLOUD_TOKEN")
 
 	if apiToken == "" {
-		l.Printf("[INFO] no API token specified, checking environment variable HCLOUD_TOKEN")
-		apiToken = os.Getenv("HCLOUD_TOKEN")
-		if apiToken == "" {
-			return nil, fmt.Errorf("discover-hcloud: no api_token specified")
-		}
-	}
-	
-	client := hcloud.NewClient(hcloud.WithToken(apiToken))
-
-	if location == "" {
-		l.Printf("[INFO] no location specified, checking environment variable HCLOUD_LOCATION")
-		location = os.Getenv("HCLOUD_LOCATION")
+		return nil, fmt.Errorf("discover-hcloud: no API token specified")
 	}
 
-	if location == "" {
-		l.Printf("[INFO] no HCLOUD_LOCATION environment variable specified, checking current location")
+	client := getHcloudClient(apiToken)
 
+	if location == "" {
 		content, err := ioutil.ReadFile("/etc/hostname")
 		if err != nil {
 			return nil, fmt.Errorf("discover-hcloud: %s", err)
@@ -112,34 +100,38 @@ func (p *Provider) Addrs(args map[string]string, l *log.Logger) ([]string, error
 
 		hostname := strings.TrimSpace(string(content))
 
+		l.Printf("[INFO] discover-hcloud: Location not specified. Searching for current server named %s.", hostname)
+
 		server, _, err := client.Server.GetByName(context.Background(), hostname)
+
 		if err != nil {
 			return nil, fmt.Errorf("discover-hcloud: %s", err)
 		}
-		if server == nil {
-			return nil, fmt.Errorf("discover-hcloud: Failed to find server named %s. Are you running on a hetzner server?", hostname)
+
+		if server != nil {
+			l.Printf("[INFO] discover-hcloud: Detected current server %s with id %d", server.Name, server.ID)
+
+			location = server.Datacenter.Location.Name
+		} else {
+			l.Printf("[INFO] discover-hcloud: No location specified and not an hcloud server. Joining all matching label selector.")
 		}
-
-		l.Printf("[INFO] discover-hcloud: Detected current server %s", server.Name)
-
-		location = server.Datacenter.Location.Name
 	}
 
-	if addrType == "" {
+	if addressType == "" {
 		l.Printf("[INFO] discover-hcloud: address type not provided, using 'private_v4'")
-		addrType = "private_v4"
+		addressType = "private_v4"
 	}
 
-	if addrType != "private_v4" && addrType != "public_v4" && addrType != "public_v6" {
-		l.Printf("[INFO] discover-hcloud: address_type %s is invalid, falling back to 'private_v4'. valid values are: private_v4, public_v4, public_v6", addrType)
-		addrType = "private_v4"
+	if addressType != "private_v4" && addressType != "public_v4" && addressType != "public_v6" {
+		l.Printf("[INFO] discover-hcloud: address_type %s is invalid, falling back to 'private_v4'. valid values are: private_v4, public_v4, public_v6", addressType)
+		addressType = "private_v4"
 	}
 
 	if location != "" {
 		l.Printf("[INFO] discover-hcloud: filtering by location %s", location)
 	}
 
-	l.Printf("[DEBUG] discover-hcloud: using address_type=%s label_selector=%s location=%s", addrType, labelSelector, location)
+	l.Printf("[DEBUG] discover-hcloud: using address_type=%s label_selector=%s location=%s", addressType, labelSelector, location)
 
 	options := hcloud.ServerListOpts{
 		ListOpts: hcloud.ListOpts{
@@ -156,7 +148,7 @@ func (p *Provider) Addrs(args map[string]string, l *log.Logger) ([]string, error
 	var addrs []string
 	for _, s := range servers {
 		if location == "" || location == s.Datacenter.Location.Name {
-			if serverIP := serverIP(s, addrType, l); serverIP != "" {
+			if serverIP := serverIP(s, addressType, l); serverIP != "" {
 				addrs = append(addrs, serverIP)
 			}
 		}
@@ -164,4 +156,16 @@ func (p *Provider) Addrs(args map[string]string, l *log.Logger) ([]string, error
 
 	log.Printf("[DEBUG] discover-hcloud: found IP addresses: %v", addrs)
 	return addrs, nil
+}
+
+func getHcloudClient(apiToken string) *hcloud.Client {
+	client := hcloud.NewClient(hcloud.WithToken(apiToken))
+	return client
+}
+
+func argsOrEnv(args map[string]string, key, env string) string {
+	if value := args[key]; value != "" {
+		return value
+	}
+	return os.Getenv(env)
 }
